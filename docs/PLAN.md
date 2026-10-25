@@ -29,7 +29,7 @@
 - [x] 合并平台后计算资产 hash 与来源记录，保存未签名候选 Actions artifact。
 - [x] 本地 actionlint 和合成输入验证；CLI-only 签名／验签回归通过。
 - [x] 获得后续提交／推送及 Linux 构建授权；配置每个私有源仓库的只读 deploy key。
-- [ ] 上传 workflow 并完成四个组件的首次真实 Linux runner 构建。
+- [x] 上传 workflow 并完成四个组件的首次真实 Linux runner 构建、测试与候选下载；大小／SHA-256 独立核验通过，详见 [构建记录](histories/2026-10-25-cli-workflow.md)。
 
 候选构建是 CD 的制品阶段；本机签名、Release 上传／公开及频道推广仍独立执行。操作见 [CD 指南](CD.md)。
 
@@ -37,7 +37,7 @@
 
 - [x] Resume/Tasks 所选 CLI 变更在隔离副本冻结为候选提交，排除桌面 UI 在途修改；原工作区保持原状。
 - [x] 建立 Resume/Tasks 私有源码 remote；四个组件使用私有候选分支提供不可变来源。
-- [ ] 在 Debian bookworm Linux x64 运行现有构建器和测试，不使用 autodl2 用户计算任务的资源；macOS 留待后续。
+- [x] 在 Debian bookworm Linux x64 运行现有构建器和测试，不使用 autodl2 用户计算任务的资源；macOS 留待后续。
 - [ ] 后续 App 流程提供 Shell ZIP/DMG；签名／公证、更新元数据与更新客户端另行推进，不阻塞 CLI。
 - [ ] 收齐许可证、SBOM/provenance 与每个平台的构建／集成验收记录，再组合首个真实发行。
 
