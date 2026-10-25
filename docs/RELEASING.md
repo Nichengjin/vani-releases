@@ -1,7 +1,7 @@
 # 准备一次统一发行
 
-当前只接通本地组合、签名、验签与 Draft 命令。创建远端仓库、推送、上传资产、发布和切换频道需要另行授权。
-本指南中的 GitHub 命令在远端仓库准备好之后使用；`draft` 默认只打印操作计划。
+GitHub 分发仓库与首个骨架提交已上线；本地组合、签名、验签与 Draft 命令可用。
+CLI runner workflow 当前只构建 Linux x64 候选，操作与权限配置见 [CD 指南](CD.md)。Linux-only 候选不满足下述正式双平台清单，macOS 构建后续推进。上传资产、发布和切换频道需要明确授权；`draft` 默认只打印操作计划。
 
 ## 1. 冻结源码，收集构建输出
 
@@ -9,7 +9,7 @@
 
 | 组件 | 当前构建归属 | 本轮清单要求 |
 | --- | --- | --- |
-| `vani-desktop` | `vani/apps/shell` | macOS arm64 ZIP，DMG 可选 |
+| `vani-desktop`（可选） | App 流程另行提供，不参与 CLI workflow | macOS arm64 ZIP，DMG 可选 |
 | `vani-daemon` | `vani/scripts/build-daemon-release.mjs` | macOS arm64 + Linux x64 portable tar.gz |
 | `resume` | `vani/scripts/build-cli-artifacts.mjs` + `vani-resume` | macOS arm64 + Linux x64 binary |
 | `vault` | `vani/scripts/build-vault-release.mjs` + `vani-vault` | 通用 Node tar.gz |
@@ -18,7 +18,7 @@
 这里不复制构建器。Linux glibc 基线沿用 Debian bookworm；daemon 包须使用 `--include-node` 构建。
 Vault 通用包仍需 Node，示例记录最低 22.22.2。声明平台与包内运行时由构建及真机验收负责。
 现有 Shell 打包器仅生成本机 `.app`；ZIP/DMG、Apple Developer ID 签名、公证及 updater 尚待实现。
-本地 `.app` 不能直接作为合格的正式发行物。
+本地 `.app` 不能直接作为合格的正式发行物。CLI 套件可以先独立分发，无需等待 App 包。
 
 每个平台可以提供独立 `release-input.json`，也接受已有合并器生成的完整组件输入。结构沿用现有构建器：
 
@@ -43,7 +43,8 @@ Vault 通用包仍需 Node，示例记录最低 22.22.2。声明平台与包内�
 
 ## 2. 记录产品组合
 
-按 [示例计划](../examples/release-plan.example.json) 把真实产物收集到被 Git 忽略的 `inputs/`。
+按 [CLI 示例计划](../examples/cli-release-plan.example.json) 把真实候选产物收集到被 Git 忽略的 `inputs/`；
+包含 Desktop 时使用 [完整示例](../examples/release-plan.example.json)。
 可在 `examples/` 新建本次计划，保持示例的相对输入路径；同组件可以引用多个平台输入。
 每次发布还应记录已经验收的组件组合和发布说明，作为发行 tag 对应的版本化记录。
 
@@ -80,7 +81,7 @@ node scripts/release.mjs verify --input "$VANI_RELEASE_OUTPUT"
 - `release-manifest.sig`：对 JSON 原始字节（包括末尾换行）的 64 字节 Ed25519 detached signature。
 - 所有组件资产。hash 和大小从**复制到输出目录的文件**计算，不采用输入自报值。
 
-`verify` 核对签名、五组件平台矩阵、每个文件大小和内容 hash；缺文件、多文件、符号链接和路径穿越都会失败。
+`verify` 核对签名、四个必需 CLI 及可选 Desktop 的平台矩阵、每个文件大小和内容 hash；缺文件、多文件、符号链接和路径穿越都会失败。
 输出目录已存在时直接拒绝；准备失败只清理这次新建的输出，不修改构建输入。
 签名验证解决清单可信与字节完整性；构建来源、Apple 签名、公证、授权与真实兼容性分别验收。
 
@@ -106,7 +107,7 @@ node scripts/release.mjs draft \
 1. 在 macOS 和 Linux 隔离 HOME/bin/data 中，验证下载、固定公钥验签、安装及各 CLI 健康检查。
 2. 真实 SSH 建立 Host 连接，验证 Resume 项目、Vault 目录／会话、Tasks 项目 schema 和 PTY。
 3. 验证旧组件升级、不支持版本的明确拒绝、失败回滚和活跃 daemon 保护；不改用户任务数据。
-4. Shell ZIP/DMG 完成目标机启动、Apple 签名／公证，以及旧版到新版更新验收。
+4. 包含 Desktop 时，Shell ZIP/DMG 完成目标机启动、Apple 签名／公证，以及旧版到新版更新验收。
 5. 公共资产只含可分发文件与许可证；复核包内凭据、私有源码、个人路径、依赖许可证、SBOM/provenance。当前脚本不扫描归档内部。
 6. 安装器及更新器切换到新来源，并验证 GitHub HTTPS 重定向、下载 host 白名单、资产大小和 hash、离线／失败路径。
 7. 明确实现签名的 preview/stable 频道索引及切换／回滚流程，然后公开发行、更新对应频道。

@@ -1,0 +1,231 @@
+name: Build CLI release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: CLI component (desktop packages are supplied separately)
+        type: choice
+        options: [resume, tasks, vault, vani-daemon]
+        required: true
+      source_repository:
+        description: Source repository in owner/name format
+        required: true
+      source_commit:
+        description: Full immutable source commit (40 lowercase hex characters)
+        required: true
+      tools_commit:
+        description: Full commit of Nichengjin/vani containing the existing builders
+        required: true
+      version:
+        description: Component version; empty generates a unique preview version
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-candidate-${{ inputs.component }}-${{ inputs.version || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        name: Validate inputs and choose native builders
+        env:
+          COMPONENT: ${{ inputs.component }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          TOOLS_COMMIT: ${{ inputs.tools_commit }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          node --input-type=module - <<'JS'
+          import { appendFileSync } from 'node:fs';
+          const { COMPONENT: component, SOURCE_COMMIT: commit } = process.env;
+          if (!['resume', 'tasks', 'vault', 'vani-daemon'].includes(component)) throw Error('Unsupported CLI component');
+          const repositories = { resume: 'Nichengjin/vani-resume', tasks: 'Nichengjin/vani-tasks', vault: 'Nichengjin/vault', 'vani-daemon': 'Nichengjin/vani' };
+          if (process.env.SOURCE_REPOSITORY !== repositories[component]) throw Error('Source repository does not match component');
+          for (const value of [commit, process.env.TOOLS_COMMIT]) {
+            if (!/^[a-f0-9]{40}$/.test(value)) throw Error('Source and tools commits must be full immutable SHAs');
+          }
+          const version = process.env.RELEASE_VERSION || `0.1.0-preview.g${commit.slice(0, 7)}.${process.env.GITHUB_RUN_ID}.${process.env.GITHUB_RUN_ATTEMPT}`;
+          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[a-z0-9]+(?:[.-][a-z0-9]+)*)?$/.test(version)) throw Error('Invalid component version');
+          const image = component === 'resume' ? 'golang:1.26.10-bookworm' : component === 'tasks' ? 'rust:1.91.0-bookworm' : 'node:22.22.2-bookworm';
+          const include = [{ runner: 'ubuntu-24.04', platform: component === 'vault' ? 'node' : 'linux-x64', image }];
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nmatrix=${JSON.stringify({ include })}\n`);
+          JS
+
+  build:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: '1'
+      npm_config_build_from_source: 'true'
+      RUSTUP_TOOLCHAIN: '1.91.0'
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+    steps:
+      - name: Install Linux native build prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git openssh-client python3 make g++ pkg-config
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: Nichengjin/vani
+          ref: ${{ inputs.tools_commit }}
+          ssh-key: ${{ secrets.VANI_TOOLS_SSH_KEY }}
+          path: tools
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_commit }}
+          ssh-key: ${{ inputs.component == 'resume' && secrets.VANI_RESUME_SSH_KEY || inputs.component == 'tasks' && secrets.VANI_TASKS_SSH_KEY || inputs.component == 'vault' && secrets.VANI_VAULT_SSH_KEY || secrets.VANI_TOOLS_SSH_KEY }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.22.2'
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        if: inputs.component == 'resume'
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - name: Install pinned pnpm
+        if: inputs.component == 'vault' || inputs.component == 'vani-daemon'
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.4 --activate
+      - name: Build frozen source and run component tests
+        env:
+          COMPONENT: ${{ inputs.component }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          TOOLS_COMMIT: ${{ inputs.tools_commit }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          node --input-type=module - <<'JS'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          import { cpSync, mkdirSync, readFileSync } from 'node:fs';
+          import { dirname, resolve } from 'node:path';
+          const { COMPONENT: component, RELEASE_PLATFORM: platform } = process.env;
+          if (platform !== 'node' && `${process.platform}-${process.arch}` !== platform) throw Error('Native runner architecture mismatch');
+          for (const [path, commit] of [['source', process.env.SOURCE_COMMIT], ['tools', process.env.TOOLS_COMMIT]]) {
+            if (execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() !== commit) throw Error('Checkout commit mismatch');
+          }
+          const builder = component === 'vault' ? 'build-vault-release.mjs' : component === 'vani-daemon' ? 'build-daemon-release.mjs' : 'build-cli-artifacts.mjs';
+          const args = [resolve('tools/scripts', builder), '--repo', resolve('source'), '--output', resolve('build'), '--version', process.env.RELEASE_VERSION];
+          if (['resume', 'tasks'].includes(component)) args.push('--component', component);
+          if (component === 'vani-daemon') args.push('--include-node', '--node-license', resolve(dirname(process.execPath), '..', 'LICENSE'));
+          execFileSync(process.execPath, args, { stdio: 'inherit' });
+          if (component === 'tasks') {
+            const input = JSON.parse(readFileSync('build/release-input.json', 'utf8'));
+            const binary = resolve('build', input.artifacts[0].path), project = resolve('build/smoke-project');
+            mkdirSync(project);
+            const env = { ...process.env, HOME: resolve('build/smoke-home'), VANI_ROOT: resolve('build/smoke-home'), VANI_TASKS_DB: resolve('build/smoke-home/project.sqlite'), VANI_SESSION_REF: 'vani:claude:linux-smoke', CLAUDE_CODE_SESSION_ID: '' };
+            const invoke = (args, input) => execFileSync(binary, args, { env, input, encoding: 'utf8', timeout: 15000 });
+            const empty = JSON.parse(invoke(['snapshot', '--json', '--project', project]));
+            assert.equal(empty.schemaVersion, 2); assert.equal(empty.workspace, null);
+            const mutation = { type: 'create_task', title: 'Linux release smoke', status: 'review', actor: env.VANI_SESSION_REF };
+            const created = JSON.parse(invoke(['mutate', '--json', '--project', project], JSON.stringify(mutation)));
+            assert.equal(created.tasks[0].status, 'review');
+            const requests = [
+              { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+              { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+              { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_tasks', arguments: { cwd: project } } }
+            ];
+            const responses = invoke(['mcp'], requests.map(r => JSON.stringify(r)).join('\n') + '\n').trim().split('\n').map(line => JSON.parse(line));
+            assert.deepEqual(responses.map(r => r.id), [1, 2, 3]);
+            assert.equal(responses[0].result.protocolVersion, '2024-11-05');
+            assert.deepEqual(responses[1].result.tools.map(t => t.name).sort(), ['create_task', 'link_task', 'list_tasks', 'update_task']);
+            assert.equal(responses[2].result.isError, false);
+            const listed = JSON.parse(responses[2].result.content[0].text);
+            assert.equal(listed.tasks[0].id, created.tasks[0].id); assert.equal(listed.tasks[0].status, 'review');
+            console.log('Release Tasks binary passed isolated project-v2/MCP persistence smoke');
+          }
+          mkdirSync('assets');
+          cpSync('build/release-input.json', 'assets/release-input.json');
+          cpSync('build/artifacts', 'assets/artifacts', { recursive: true });
+          JS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-${{ inputs.component }}-attempt-${{ github.run_attempt }}-${{ matrix.platform }}
+          path: assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  collect:
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: Nichengjin/vani
+          ref: ${{ inputs.tools_commit }}
+          ssh-key: ${{ secrets.VANI_TOOLS_SSH_KEY }}
+          path: tools
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.22.2'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: cli-${{ inputs.component }}-attempt-${{ github.run_attempt }}-*
+          path: downloaded
+      - name: Merge and verify Linux candidate artifacts
+        env:
+          COMPONENT: ${{ inputs.component }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          TOOLS_COMMIT: ${{ inputs.tools_commit }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          node --input-type=module - <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          import { createReadStream, lstatSync, readFileSync, writeFileSync } from 'node:fs';
+          import { basename, resolve } from 'node:path';
+          const { COMPONENT: component, SOURCE_COMMIT: commit, RELEASE_VERSION: version } = process.env;
+          execFileSync(process.execPath, ['tools/scripts/merge-cli-releases.mjs', '--input', 'downloaded', '--output', 'candidate'], { stdio: 'inherit' });
+          const input = JSON.parse(readFileSync('candidate/release-input.json', 'utf8'));
+          if (input.component !== component || input.commit !== commit || input.version !== version) throw Error('Merged source identity mismatch');
+          const platforms = component === 'vault' ? ['node'] : ['linux-x64'];
+          if (input.artifacts.map(a => a.platform).sort().join(',') !== platforms.join(',')) throw Error('Incomplete platform matrix');
+          const kind = ['resume', 'tasks'].includes(component) ? 'binary' : 'tar.gz';
+          const artifacts = [];
+          for (const asset of input.artifacts) {
+            const file = basename(asset.path);
+            if (asset.path !== `artifacts/${file}` || !file.startsWith(`${component}-`) || !/^[a-z0-9][a-z0-9._-]*$/.test(file) || asset.kind !== kind) throw Error('Invalid candidate asset');
+            const path = resolve('candidate', asset.path), stat = lstatSync(path);
+            if (!stat.isFile() || stat.size < 1 || stat.size >= 2 ** 31) throw Error('Invalid candidate file or size');
+            const hash = createHash('sha256');
+            for await (const chunk of createReadStream(path)) hash.update(chunk);
+            artifacts.push({ ...asset, bytes: stat.size, sha256: hash.digest('hex') });
+          }
+          const provenance = { format: 'vani-cli-candidate-v1', component, version,
+            sourceRepository: process.env.SOURCE_REPOSITORY, sourceCommit: commit,
+            toolsRepository: 'Nichengjin/vani', toolsCommit: process.env.TOOLS_COMMIT,
+            distributionCommit: process.env.GITHUB_SHA,
+            workflowRun: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`,
+            signed: false, artifacts };
+          writeFileSync('candidate/build-provenance.json', JSON.stringify(provenance, null, 2) + '\n');
+          JS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-${{ inputs.component }}-${{ needs.resolve.outputs.version }}-attempt-${{ github.run_attempt }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 14

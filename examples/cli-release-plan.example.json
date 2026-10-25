@@ -1,0 +1,16 @@
+{
+  "format": "vani-release-plan-v1",
+  "version": "0.1.0-preview.20261025.1",
+  "channel": "preview",
+  "compatibility": {
+    "hostProtocol": { "major": 0, "minor": 8 },
+    "nodeMinimum": "22.22.2",
+    "tasksProjectSchema": 2
+  },
+  "components": {
+    "vani-daemon": ["../inputs/vani-daemon/release-input.json"],
+    "resume": ["../inputs/resume/release-input.json"],
+    "vault": ["../inputs/vault/release-input.json"],
+    "tasks": ["../inputs/tasks/release-input.json"]
+  }
+}

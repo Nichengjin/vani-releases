@@ -23,6 +23,12 @@ function requireValue(condition, message) {
   if (!condition) throw Error(message)
 }
 
+function validateComponents(components) {
+  const names = Object.keys(components ?? {})
+  requireValue(Object.keys(matrix).every(name => name === 'vani-desktop' || names.includes(name))
+    && names.every(name => Object.hasOwn(matrix, name)), 'All four CLI components are required; desktop is optional')
+}
+
 function validateRelease(manifest, checkDigests = true) {
   requireValue(manifest.format === 'vani-release-v1', 'Unsupported manifest format')
   requireValue(versionPattern.test(manifest.version), 'Invalid release version')
@@ -34,10 +40,10 @@ function validateRelease(manifest, checkDigests = true) {
     && compatibility.hostProtocol.minor >= 0 && /^\d+\.\d+\.\d+$/.test(compatibility.nodeMinimum)
     && Number.isInteger(compatibility.tasksProjectSchema) && compatibility.tasksProjectSchema > 0,
   'Invalid compatibility contract')
-  requireValue(manifest.components && Object.keys(manifest.components).sort().join(',') === Object.keys(matrix).sort().join(','), 'Exactly five components are required')
+  validateComponents(manifest.components)
   const names = new Set()
-  for (const [component, required] of Object.entries(matrix)) {
-    const input = manifest.components[component]
+  for (const [component, input] of Object.entries(manifest.components)) {
+    const required = matrix[component]
     requireValue(input && versionPattern.test(input.version) && commitPattern.test(input.commit), `${component}: invalid version or full source commit`)
     requireValue(Array.isArray(input.artifacts), `${component}: artifacts are required`)
     const platforms = new Set()
@@ -70,7 +76,7 @@ async function prepare(options) {
   const planFile = resolve(options.plan)
   const plan = JSON.parse(await readFile(planFile, 'utf8'))
   requireValue(plan.format === 'vani-release-plan-v1', 'Unsupported plan format')
-  requireValue(plan.components && Object.keys(plan.components).sort().join(',') === Object.keys(matrix).sort().join(','), 'Exactly five components are required')
+  validateComponents(plan.components)
   const key = createPrivateKey(JSON.parse(await readFile(options.credentials, 'utf8')).privateKey)
   const publicKey = createPublicKey(await readFile(options['public-key'] ?? publicKeyPath))
   requireValue(key.asymmetricKeyType === 'ed25519' && publicKey.asymmetricKeyType === 'ed25519'
@@ -81,7 +87,7 @@ async function prepare(options) {
       nodeMinimum: plan.compatibility?.nodeMinimum, tasksProjectSchema: plan.compatibility?.tasksProjectSchema
     }, components: {} }
   const copies = []
-  for (const component of Object.keys(matrix)) {
+  for (const component of Object.keys(plan.components)) {
     const paths = plan.components[component]
     requireValue(Array.isArray(paths) && paths.length > 0, `${component}: release inputs are required`)
     const combined = { artifacts: [] }
@@ -125,7 +131,7 @@ async function prepare(options) {
     await rm(output, { recursive: true, force: true })
     throw error
   }
-  console.log(`Prepared ${manifest.version}: five components, ${copies.length} assets`)
+  console.log(`Prepared ${manifest.version}: ${Object.keys(manifest.components).length} components, ${copies.length} assets`)
 }
 
 async function verifyDirectory(options) {

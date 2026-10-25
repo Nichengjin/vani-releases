@@ -85,6 +85,20 @@ test('rejects a missing Linux platform before creating output', async t => {
   await assert.rejects(readdir(f.output), { code: 'ENOENT' })
 })
 
+test('CLI suite signs without a desktop package and still requires every CLI', async t => {
+  const f = await fixture(t)
+  delete f.plan.components['vani-desktop']
+  await json(f.planFile, f.plan)
+  succeeds(f.prepare())
+  succeeds(f.run('verify', ['--input', f.output]))
+  const manifest = JSON.parse(await readFile(join(f.output, 'release-manifest.json')))
+  assert.deepEqual(Object.keys(manifest.components).sort(), ['resume', 'tasks', 'vani-daemon', 'vault'])
+  assert.equal((await readdir(f.output)).length, 9)
+  delete f.plan.components.tasks
+  await json(f.planFile, f.plan)
+  fails(f.prepare(), /All four CLI components are required/)
+})
+
 test('requires matching native component versions and commits', async t => {
   const f = await fixture(t)
   const input = f.inputs.find(i => i.input.component === 'tasks' && i.input.artifacts[0].platform === 'linux-x64')
