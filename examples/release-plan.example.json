@@ -1,0 +1,17 @@
+{
+  "format": "vani-release-plan-v1",
+  "version": "0.1.0-preview.20261025.1",
+  "channel": "preview",
+  "compatibility": {
+    "hostProtocol": { "major": 0, "minor": 8 },
+    "nodeMinimum": "22.22.2",
+    "tasksProjectSchema": 2
+  },
+  "components": {
+    "vani-desktop": ["../inputs/vani-desktop/release-input.json"],
+    "vani-daemon": ["../inputs/vani-daemon/darwin-arm64/release-input.json", "../inputs/vani-daemon/linux-x64/release-input.json"],
+    "resume": ["../inputs/resume/darwin-arm64/release-input.json", "../inputs/resume/linux-x64/release-input.json"],
+    "vault": ["../inputs/vault/release-input.json"],
+    "tasks": ["../inputs/tasks/darwin-arm64/release-input.json", "../inputs/tasks/linux-x64/release-input.json"]
+  }
+}

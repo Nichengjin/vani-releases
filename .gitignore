@@ -1,0 +1,10 @@
+node_modules/
+dist/
+inputs/
+.tmp/
+.DS_Store
+credentials*.json
+*.key
+*.pem
+!keys/release-public-key.pem
+.env*
