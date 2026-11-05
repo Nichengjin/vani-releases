@@ -33,6 +33,16 @@
 
 候选构建是 CD 的制品阶段；本机签名、Release 上传／公开及频道推广仍独立执行。操作见 [CD 指南](CD.md)。
 
+## M0.2：RWS 与原生 macOS 候选（2026-11-05，本地准备）
+
+- [x] workflow 增加 RWS 固定来源 `Nichengjin/remote-workspace-backend` 和独立 `VANI_RWS_SSH_KEY` 引用；复用 Vani 的 RWS 构建／测试入口，Go 1.26.10。
+- [x] Resume／Tasks／RWS／daemon 增加 `macos-15` arm64 原生 job，保留 bookworm Linux x64；Vault 单 Node 包不变。
+- [x] 收集阶段要求同源码／版本的完整双平台与正确 kind；增加本地嵌入脚本回归。
+- [ ] 操作者推送 workflow、准备含 RWS 支持的工具 SHA／源码 SHA、配置 RWS 只读 deploy key 后手动执行；本轮不推送、不 dispatch。
+- [ ] 下载并核验新增真实候选；统一发行契约尚未纳入 RWS，不把本地编排检查当作产品验收。
+
+详见 [本次记录](histories/2026-11-05-rws-macos-workflow.md)。用户已同意后续直接 preview、跳过本轮新机 UI／安装验收；此授权不改变 workflow 不签名、不自动发布的边界，未做的验收须明确保留。
+
 ## M1：准备可复现的真实制品
 
 - [x] Resume/Tasks 所选 CLI 变更在隔离副本冻结为候选提交，排除桌面 UI 在途修改；原工作区保持原状。
@@ -55,5 +65,5 @@
 
 ## 后续按实际需要推进
 
-本轮在分发仓库编排受信的手动 Linux CLI 构建；私有源码通过每仓库独立的只读 SSH deploy key checkout，不在 PR 自动触发构建。
+当前在分发仓库编排受信的手动 macOS/Linux CLI 构建；私有源码通过每仓库独立的只读 SSH deploy key checkout，不在 PR 自动触发构建。
 私钥保留本机，签名与公开发布单独审批。新增 Windows/Linux arm64 或组件独立发行时再扩展矩阵与格式。

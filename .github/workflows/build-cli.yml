@@ -6,7 +6,7 @@ on:
       component:
         description: CLI component (desktop packages are supplied separately)
         type: choice
-        options: [resume, tasks, vault, vani-daemon]
+        options: [resume, tasks, rws, vault, vani-daemon]
         required: true
       source_repository:
         description: Source repository in owner/name format
@@ -48,16 +48,18 @@ jobs:
           node --input-type=module - <<'JS'
           import { appendFileSync } from 'node:fs';
           const { COMPONENT: component, SOURCE_COMMIT: commit } = process.env;
-          if (!['resume', 'tasks', 'vault', 'vani-daemon'].includes(component)) throw Error('Unsupported CLI component');
-          const repositories = { resume: 'Nichengjin/vani-resume', tasks: 'Nichengjin/vani-tasks', vault: 'Nichengjin/vault', 'vani-daemon': 'Nichengjin/vani' };
+          if (!['resume', 'tasks', 'rws', 'vault', 'vani-daemon'].includes(component)) throw Error('Unsupported CLI component');
+          const repositories = { resume: 'Nichengjin/vani-resume', tasks: 'Nichengjin/vani-tasks', rws: 'Nichengjin/remote-workspace-backend', vault: 'Nichengjin/vault', 'vani-daemon': 'Nichengjin/vani' };
           if (process.env.SOURCE_REPOSITORY !== repositories[component]) throw Error('Source repository does not match component');
           for (const value of [commit, process.env.TOOLS_COMMIT]) {
             if (!/^[a-f0-9]{40}$/.test(value)) throw Error('Source and tools commits must be full immutable SHAs');
           }
           const version = process.env.RELEASE_VERSION || `0.1.0-preview.g${commit.slice(0, 7)}.${process.env.GITHUB_RUN_ID}.${process.env.GITHUB_RUN_ATTEMPT}`;
           if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[a-z0-9]+(?:[.-][a-z0-9]+)*)?$/.test(version)) throw Error('Invalid component version');
-          const image = component === 'resume' ? 'golang:1.26.10-bookworm' : component === 'tasks' ? 'rust:1.91.0-bookworm' : 'node:22.22.2-bookworm';
+          const image = ['resume', 'rws'].includes(component) ? 'golang:1.26.10-bookworm' : component === 'tasks' ? 'rust:1.91.0-bookworm' : 'node:22.22.2-bookworm';
           const include = [{ runner: 'ubuntu-24.04', platform: component === 'vault' ? 'node' : 'linux-x64', image }];
+          // An empty image disables the job container on the native macOS runner.
+          if (component !== 'vault') include.push({ runner: 'macos-15', platform: 'darwin-arm64', image: '' });
           appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nmatrix=${JSON.stringify({ include })}\n`);
           JS
 
@@ -91,17 +93,20 @@ jobs:
         with:
           repository: ${{ inputs.source_repository }}
           ref: ${{ inputs.source_commit }}
-          ssh-key: ${{ inputs.component == 'resume' && secrets.VANI_RESUME_SSH_KEY || inputs.component == 'tasks' && secrets.VANI_TASKS_SSH_KEY || inputs.component == 'vault' && secrets.VANI_VAULT_SSH_KEY || secrets.VANI_TOOLS_SSH_KEY }}
+          ssh-key: ${{ inputs.component == 'resume' && secrets.VANI_RESUME_SSH_KEY || inputs.component == 'tasks' && secrets.VANI_TASKS_SSH_KEY || inputs.component == 'rws' && secrets.VANI_RWS_SSH_KEY || inputs.component == 'vault' && secrets.VANI_VAULT_SSH_KEY || secrets.VANI_TOOLS_SSH_KEY }}
           path: source
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.22.2'
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        if: inputs.component == 'resume'
+        if: inputs.component == 'resume' || inputs.component == 'rws'
         with:
           go-version: '1.26.10'
           cache: false
+      - name: Install pinned Rust on macOS
+        if: runner.os == 'macOS' && inputs.component == 'tasks'
+        run: rustup toolchain install 1.91.0 --profile minimal
       - name: Install pinned pnpm
         if: inputs.component == 'vault' || inputs.component == 'vani-daemon'
         run: |
@@ -127,18 +132,18 @@ jobs:
           }
           const builder = component === 'vault' ? 'build-vault-release.mjs' : component === 'vani-daemon' ? 'build-daemon-release.mjs' : 'build-cli-artifacts.mjs';
           const args = [resolve('tools/scripts', builder), '--repo', resolve('source'), '--output', resolve('build'), '--version', process.env.RELEASE_VERSION];
-          if (['resume', 'tasks'].includes(component)) args.push('--component', component);
+          if (['resume', 'tasks', 'rws'].includes(component)) args.push('--component', component);
           if (component === 'vani-daemon') args.push('--include-node', '--node-license', resolve(dirname(process.execPath), '..', 'LICENSE'));
           execFileSync(process.execPath, args, { stdio: 'inherit' });
           if (component === 'tasks') {
             const input = JSON.parse(readFileSync('build/release-input.json', 'utf8'));
             const binary = resolve('build', input.artifacts[0].path), project = resolve('build/smoke-project');
             mkdirSync(project);
-            const env = { ...process.env, HOME: resolve('build/smoke-home'), VANI_ROOT: resolve('build/smoke-home'), VANI_TASKS_DB: resolve('build/smoke-home/project.sqlite'), VANI_SESSION_REF: 'vani:claude:linux-smoke', CLAUDE_CODE_SESSION_ID: '' };
+            const env = { ...process.env, HOME: resolve('build/smoke-home'), VANI_ROOT: resolve('build/smoke-home'), VANI_TASKS_DB: resolve('build/smoke-home/project.sqlite'), VANI_SESSION_REF: 'vani:claude:release-smoke', CLAUDE_CODE_SESSION_ID: '' };
             const invoke = (args, input) => execFileSync(binary, args, { env, input, encoding: 'utf8', timeout: 15000 });
             const empty = JSON.parse(invoke(['snapshot', '--json', '--project', project]));
             assert.equal(empty.schemaVersion, 2); assert.equal(empty.workspace, null);
-            const mutation = { type: 'create_task', title: 'Linux release smoke', status: 'review', actor: env.VANI_SESSION_REF };
+            const mutation = { type: 'create_task', title: 'Native release smoke', status: 'review', actor: env.VANI_SESSION_REF };
             const created = JSON.parse(invoke(['mutate', '--json', '--project', project], JSON.stringify(mutation)));
             assert.equal(created.tasks[0].status, 'review');
             const requests = [
@@ -185,7 +190,7 @@ jobs:
         with:
           pattern: cli-${{ inputs.component }}-attempt-${{ github.run_attempt }}-*
           path: downloaded
-      - name: Merge and verify Linux candidate artifacts
+      - name: Merge and verify complete candidate platform matrix
         env:
           COMPONENT: ${{ inputs.component }}
           SOURCE_REPOSITORY: ${{ inputs.source_repository }}
@@ -202,9 +207,9 @@ jobs:
           execFileSync(process.execPath, ['tools/scripts/merge-cli-releases.mjs', '--input', 'downloaded', '--output', 'candidate'], { stdio: 'inherit' });
           const input = JSON.parse(readFileSync('candidate/release-input.json', 'utf8'));
           if (input.component !== component || input.commit !== commit || input.version !== version) throw Error('Merged source identity mismatch');
-          const platforms = component === 'vault' ? ['node'] : ['linux-x64'];
+          const platforms = component === 'vault' ? ['node'] : ['darwin-arm64', 'linux-x64'];
           if (input.artifacts.map(a => a.platform).sort().join(',') !== platforms.join(',')) throw Error('Incomplete platform matrix');
-          const kind = ['resume', 'tasks'].includes(component) ? 'binary' : 'tar.gz';
+          const kind = ['resume', 'tasks', 'rws'].includes(component) ? 'binary' : 'tar.gz';
           const artifacts = [];
           for (const asset of input.artifacts) {
             const file = basename(asset.path);

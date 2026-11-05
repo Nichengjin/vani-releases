@@ -1,7 +1,8 @@
 # 准备一次统一发行
 
 GitHub 分发仓库与首个骨架提交已上线；本地组合、签名、验签与 Draft 命令可用。
-CLI runner workflow 当前只构建 Linux x64 候选，操作与权限配置见 [CD 指南](CD.md)。Linux-only 候选不满足下述正式双平台清单，macOS 构建后续推进。上传资产、发布和切换频道需要明确授权；`draft` 默认只打印操作计划。
+CLI runner workflow 支持原生组件的 macOS arm64 + Linux x64 候选和 Vault 通用 Node 包，操作与权限配置见 [CD 指南](CD.md)。新增 RWS／macOS 路径尚未真实执行；Linux-only 历史候选不满足下述正式双平台清单。上传资产、发布和切换频道需要明确授权；`draft` 默认只打印操作计划。
+RWS 当前仅接入候选 workflow，不在本仓库统一发行组合器的四 CLI 契约中；不要直接把 RWS 输入交给 `prepare`。
 
 ## 1. 冻结源码，收集构建输出
 

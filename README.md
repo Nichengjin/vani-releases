@@ -3,7 +3,7 @@
 Vani Constellation 的统一发行仓库：产品源码各自维护，Shell 和组件制品集中通过 GitHub Releases 分发。
 
 **当前状态：[GitHub 分发仓库](https://github.com/Nichengjin/vani-releases) 已创建，首个骨架提交已推送，基础 CI 已通过。**
-CLI 候选构建 workflow 以手动触发方式构建 Linux x64，macOS 暂缓；私有源码仓库与只读访问已配置，真实构建结果见 [CD 记录](docs/histories/2026-10-25-cli-workflow.md)。正式发行尚未创建，安装器、CLI 自更新和 Shell 远端准备仍使用原发布协议，迁移进度见 [执行计划](docs/PLAN.md)。
+CLI 候选构建 workflow 手动构建 Resume／Tasks／RWS／daemon 的 macOS arm64 + Linux x64，Vault 保持通用 Node 包。新增 RWS／macOS 编排仅本地检查，RWS 只读 deploy key 待操作者配置；既有真实 Linux 构建见 [CD 记录](docs/histories/2026-10-25-cli-workflow.md)，本次扩展见 [更新记录](docs/histories/2026-11-05-rws-macos-workflow.md)。正式发行尚未创建，安装器、CLI 自更新和 Shell 远端准备仍使用原发布协议，迁移进度见 [执行计划](docs/PLAN.md)。
 
 ## 先检查本地工具
 
