@@ -34,3 +34,11 @@
 4. `scripts/release.mjs` 的统一发行契约仍只支持原有四个 CLI，不接受 RWS。本次只扩展候选编排；RWS 签名发布需走已支持它的源仓库流程或另行扩展统一契约。
 5. Actions 日志／候选在公共仓库可见，制品只保留 14 天；执行前确认可分发内容，执行后及时下载保存。裸 binary 下载后需恢复执行权限。
 6. 没有进行新机 UI／安装验收（按用户要求跳过），也没有进行发布或公开下载验签；不能把本地回归标作这些验收已通过。
+
+## 2026-11-06 runner 执行补记
+
+- Resume、Tasks 已完成 macOS／Linux 原生构建及 collect，Vault 通用候选也已成功；冻结工具为 Vani `08ced6e2`。
+- RWS 首轮 Linux 执行暴露 GNU base64、Git UTC 显示与测试 fake tmux／PATH 夹具差异，源码测试修复冻结为 `4fadc26`，不改运行时代码。
+- 第二轮 RWS Linux 仅剩 `TestShellStatusRepairsCommandExitWithoutRestart`：状态已是 `exited`、命令与 session 均已结束，runner PID 仍报告 alive。日志没有进程状态，尚未确认它是否为未回收的孤儿／僵尸。
+- Linux 构建容器增加 Docker `--init`，让进程生命周期测试中的脱离父进程可以被正常回收；保留原测试和超时，不跳过失败。macOS 空 image 仍禁用容器。
+- 该调整需由下一轮完整双平台 GitHub 构建验证；不能将本地脚本检查视为原生 Linux 通过。

@@ -69,7 +69,9 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.image }}
+    container:
+      image: ${{ matrix.image }}
+      options: --init
     timeout-minutes: 45
     env:
       CGO_ENABLED: '1'
